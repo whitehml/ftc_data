@@ -28,9 +28,6 @@ df = df.drop(labels=['leagueCode','districtCode','venue'],axis=1)
 query = requests.get(SERVER + "v2.0/2024/matches/USPALAQ2", auth=HTTPBasicAuth(USER, API_KEY), headers=HEADERS)
 mf = pd.DataFrame(query.json()['matches'])
 
-# Per Match create 4 new lines, one for every team
-
-
 query = requests.get(SERVER + "v2.0/2024/scores/USPALAQ2/qual", auth=HTTPBasicAuth(USER, API_KEY), headers=HEADERS)
 qf = pd.DataFrame(query.json()['matchScores'])
 
