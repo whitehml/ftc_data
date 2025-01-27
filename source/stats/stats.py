@@ -63,22 +63,22 @@ def process_event(mf, qf, pf, eventCode):
 
 	return df
 
-	def aggregate_matches(df):
-		alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
-		agg_d = { c: 'sum' if c in alliance_stats else 'count' for c in df.columns }
-		t = df.groupby(df['teamNumber']).agg(agg_d)
-		non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
-		t = t.drop(labels = non_alliance_labels,axis=1)
-		f = t.div(t.matchNumber,axis=0).drop(labels=['matchNumber'],axis=1)
-		f['Bucket'] = 2 * (f.aNet_A + f.tNet_A) + 4 * (f.aSMPL_A + f.tSMPL_A) + 8 * (f.aSMPH_A + f.tSMPH_A)
-		f['Specimen'] = 5 * (f.aSPCL_A + f.tSPCL_A) + 10 * (f.aSPCH_A + f.tSPCH_A)
-		f['Foul'] = -5 * f.miFoul_A + -15 * f.maFoul_A
-		h = f.drop(labels=alliance_stats,axis=1)
-		return None
+def aggregate_matches(df):
+	alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
+	agg_d = { c: 'sum' if c in alliance_stats else 'count' for c in df.columns }
+	t = df.groupby(df['teamNumber']).agg(agg_d)
+	non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
+	t = t.drop(labels = non_alliance_labels,axis=1)
+	f = t.div(t.matchNumber,axis=0).drop(labels=['matchNumber'],axis=1)
+	f['Bucket'] = 2 * (f.aNet_A + f.tNet_A) + 4 * (f.aSMPL_A + f.tSMPL_A) + 8 * (f.aSMPH_A + f.tSMPH_A)
+	f['Specimen'] = 5 * (f.aSPCL_A + f.tSPCL_A) + 10 * (f.aSPCH_A + f.tSPCH_A)
+	f['Foul'] = -5 * f.miFoul_A + -15 * f.maFoul_A
+	h = f.drop(labels=alliance_stats,axis=1)
+	return None
 
-	def generate_scouting_report(team_ids):
-		return None
-	
+def generate_scouting_report(team_ids):
+return None
+
 # scout0 = [3900,
 # 8393,
 # 8509,
