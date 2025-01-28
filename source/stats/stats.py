@@ -1,9 +1,73 @@
 ﻿import pandas as pd
+import numpy as np
 
 # mf: Match Frame: overview of schedule, alliances and topline scores
 # qf: Qualifiers Frame: detailed alliance scoring for qualifier matches
 # pf: Playoffs Frame: detailed alliance scoring for playoff matches
 # returns a Dataframe with detailed match by match breakdown
+
+location_map = { 'NONE' : 0, 'OBSERVATION_ZONE' : 3, 'ASCENT' : 3 }
+ascent_map = { 'NONE' : 0, 'OBSERVATION_ZONE' : 3, 'ASCENT_1' : 5, 'ASCENT_2' : 15, 'ASCENT_3' : 30 }
+alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
+non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
+
+# Statistic helpers
+def initialize_team_matrix(team_ids):
+	df = pd.DataFrame(columns=team_ids)
+	return df.reindex(team_ids).fillna(0)
+
+def schedule_matrix(df, matrix):
+	for _, r in df.iterrows():
+		matrix.loc[r.teamNumber, r.teamNumber] += 1
+		matrix.loc[r.teamNumber, r.partnerNumber] += 1
+
+def aggregate_alliance_stats(df):
+	agg_d = { c: 'sum' if c in alliance_stats else 'count' for c in df.columns }
+	team_totals = df.groupby(df['teamNumber']).agg(agg_d)
+	return team_totals.drop(labels=non_alliance_labels,axis=1)
+
+def calculate_event_opr(df):
+	team_matrix = initialize_team_matrix(df.teamNumber.unique())
+	schedule_matrix(df, team_matrix)
+	pinv = np.linalg.pinv(team_matrix)
+
+	opr = pd.DataFrame(columns=['aNet_O', 'aSMPL_O', 'aSMPH_O', 'aSPCL_O', 'aSPCH_O', 'tNet_O', 'tSMPL_O', 'tSMPH_O', 'tSPCL_O', 'tSPCH_O', 'miFoul_O', 'maFoul_O'])
+	opr = opr.reindex(df.teamNumber.unique()).fillna(0)
+
+	team_totals = aggregate_alliance_stats(df)
+
+	#x , r0, r1, s = lstsq(team_matrix.values,team_totals.tSPCH_A.astype(int))
+	for stat in alliance_stats:
+		opr[stat[:-1] + "O"] = np.matmul(pinv, team_totals[stat]) 
+	return opr
+
+
+
+
+def calculate_opr(df):
+	oprs = {}
+	dfs = [g for _, g in df.groupby('eventCode')]
+	for f in dfs:
+		opr = calculate_event_opr(f)
+		oprs[df.eventCode.values[0]] = opr
+	
+
+
+# Scouting report helpers
+def classify_teams(df, team_ids):
+	veteran = [id for id in team_ids if id in select_qualifiers(df).teamNumber.values]
+	trained = [id for id in team_ids if id in select_scrimmages(df).teamNumber.values and not id in veteran]
+	green = [id for id in team_ids if id not in veteran and id not in trained]
+	return {'veteran' : veteran, 'trained' : trained, 'green': green}
+
+def select_qualifiers(df):
+	return df[df.eventCode.str[-1:] != 'S']
+
+def select_scrimmages(df):
+	return df[df.eventCode.str[-1:] == 'S']
+
+
+
 def process_event(mf, qf, pf, eventCode):
 	# Pre-Process matches
 	mf['red1'] = [0] * len(mf)
@@ -63,44 +127,20 @@ def process_event(mf, qf, pf, eventCode):
 
 	return df
 
-def aggregate_matches(df):
-	alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
-	agg_d = { c: 'sum' if c in alliance_stats else 'count' for c in df.columns }
-	t = df.groupby(df['teamNumber']).agg(agg_d)
-	non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
-	t = t.drop(labels = non_alliance_labels,axis=1)
-	f = t.div(t.matchNumber,axis=0).drop(labels=['matchNumber'],axis=1)
-	f['Bucket'] = 2 * (f.aNet_A + f.tNet_A) + 4 * (f.aSMPL_A + f.tSMPL_A) + 8 * (f.aSMPH_A + f.tSMPH_A)
-	f['Specimen'] = 5 * (f.aSPCL_A + f.tSPCL_A) + 10 * (f.aSPCH_A + f.tSPCH_A)
-	f['Foul'] = -5 * f.miFoul_A + -15 * f.maFoul_A
-	h = f.drop(labels=alliance_stats,axis=1)
+
+# def aggregate_matches(df):
+# 	alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
+# 	agg_d = { c: 'sum' if c in alliance_stats else 'count' for c in df.columns }
+# 	t = df.groupby(df['teamNumber']).agg(agg_d)
+# 	non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
+# 	t = t.drop(labels = non_alliance_labels,axis=1)
+# 	f = t.div(t.matchNumber,axis=0).drop(labels=['matchNumber'],axis=1)
+# 	f['Bucket'] = 2 * (f.aNet_A + f.tNet_A) + 4 * (f.aSMPL_A + f.tSMPL_A) + 8 * (f.aSMPH_A + f.tSMPH_A)
+# 	f['Specimen'] = 5 * (f.aSPCL_A + f.tSPCL_A) + 10 * (f.aSPCH_A + f.tSPCH_A)
+# 	f['Ascent'] = location_map[f.location] + ascent_map[f.ascent]
+# 	f['Foul'] = -5 * f.miFoul_A + -15 * f.maFoul_A
+# 	h = f.drop(labels=alliance_stats,axis=1)
+# 	return None
+
+def generate_event_scouting_report(df, team_ids):
 	return None
-
-def generate_scouting_report(team_ids):
-return None
-
-# scout0 = [3900,
-# 8393,
-# 8509,
-# 9820,
-# 9821,
-# 9981,
-# 9982,
-# 10098,
-# 12792,
-# 13474,
-# 16011,
-# 16564,
-# 16762,
-# 16776,
-# 18603,
-# 20223,
-# 21364,
-# 21598,
-# 22312,
-# 23671,
-# 23744,
-# 25661,
-# 26446,
-# 26986,
-# 27368]
