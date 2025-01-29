@@ -149,7 +149,8 @@ def process_event(mf, qf, pf, eventCode):
 # Looks at # of teams already qualified for States
 # Classifies Robots into Bucket, Specimen and Hybrid
 # Predicts value for top 6 Bucket, Specimen
-def generate_event_scouting_report(df, team_ids):
+def generate_event_scouting_report(matches, stats, team_ids):
+	team_stats = stats[stats.teamNumber.str in team_ids]
 	return None
 
 
@@ -164,5 +165,7 @@ def generate_event_scouting_report(df, team_ids):
 # Adjusted least squares fit
 # Role assigned values
 # Average individual values (location/ascent)
+
+
 
 # panther_power = [3900, 6549, 8393, 8509, 9820, 9821, 9981, 9982, 10098, 12792, 13474, 16011, 16564, 16762, 16776, 18603, 20223, 21364, 21598, 22312, 23671, 23744, 25661, 26446, 26986, 27368, 28391, 19934]
