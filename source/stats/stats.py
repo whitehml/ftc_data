@@ -1,5 +1,6 @@
 ﻿import pandas as pd
 import numpy as np
+from math import ceil
 
 # mf: Match Frame: overview of schedule, alliances and topline scores
 # qf: Qualifiers Frame: detailed alliance scoring for qualifier matches
@@ -26,30 +27,32 @@ def aggregate_alliance_stats(df):
 	team_totals = df.groupby(df['teamNumber']).agg(agg_d)
 	return team_totals.drop(labels=non_alliance_labels,axis=1)
 
-def calculate_event_opr(df):
+def calculate_event_opr(df, eventCode):
 	team_matrix = initialize_team_matrix(df.teamNumber.unique())
 	schedule_matrix(df, team_matrix)
 	pinv = np.linalg.pinv(team_matrix)
 
-	opr = pd.DataFrame(columns=['aNet_O', 'aSMPL_O', 'aSMPH_O', 'aSPCL_O', 'aSPCH_O', 'tNet_O', 'tSMPL_O', 'tSMPH_O', 'tSPCL_O', 'tSPCH_O', 'miFoul_O', 'maFoul_O'])
+	opr = pd.DataFrame(columns=['eventCode', 'aNet_O', 'aSMPL_O', 'aSMPH_O', 'aSPCL_O', 'aSPCH_O', 'tNet_O', 'tSMPL_O', 'tSMPH_O', 'tSPCL_O', 'tSPCH_O', 'miFoul_O', 'maFoul_O'])
 	opr = opr.reindex(df.teamNumber.unique()).fillna(0)
 
 	team_totals = aggregate_alliance_stats(df)
 
-	#x , r0, r1, s = lstsq(team_matrix.values,team_totals.tSPCH_A.astype(int))
 	for stat in alliance_stats:
-		opr[stat[:-1] + "O"] = np.matmul(pinv, team_totals[stat]) 
+		opr[stat[:-1] + "O"] = np.matmul(pinv, team_totals[stat])
+	opr['eventCode'] = [eventCode] * len(opr)
+	opr.reset_index(inplace=True)
 	return opr
 
 
 
-
+# Pre: a match data dataframe, with playoff data removed
 def calculate_opr(df):
-	oprs = {}
+	oprs = []
 	dfs = [g for _, g in df.groupby('eventCode')]
 	for f in dfs:
-		opr = calculate_event_opr(f)
-		oprs[df.eventCode.values[0]] = opr
+		oprs.append(calculate_event_opr(f, f.eventCode.values[0]))
+	return oprs
+		
 	
 
 
@@ -142,5 +145,24 @@ def process_event(mf, qf, pf, eventCode):
 # 	h = f.drop(labels=alliance_stats,axis=1)
 # 	return None
 
+# Goes through stats.pkl, and finds most recent/relavent information on each competitor
+# Looks at # of teams already qualified for States
+# Classifies Robots into Bucket, Specimen and Hybrid
+# Predicts value for top 6 Bucket, Specimen
 def generate_event_scouting_report(df, team_ids):
 	return None
+
+
+# On disk ###
+# - intothedeep_matches.pkl
+# Every match from the perspective of each team (4 lines per match).
+# Has every FTC provided stat, inclused match #, qual/playoff and event code.
+#
+# - intothedeep_stats.pkl
+# A line for every team/event combo.
+# Average alliance values (non-playoff)
+# Adjusted least squares fit
+# Role assigned values
+# Average individual values (location/ascent)
+
+# panther_power = [3900, 6549, 8393, 8509, 9820, 9821, 9981, 9982, 10098, 12792, 13474, 16011, 16564, 16762, 16776, 18603, 20223, 21364, 21598, 22312, 23671, 23744, 25661, 26446, 26986, 27368, 28391, 19934]
