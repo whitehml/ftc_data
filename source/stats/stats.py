@@ -9,7 +9,7 @@ from math import ceil
 
 location_map = { 'NONE' : 0, 'OBSERVATION_ZONE' : 3, 'ASCENT' : 3 }
 ascent_map = { 'NONE' : 0, 'OBSERVATION_ZONE' : 3, 'ASCENT_1' : 5, 'ASCENT_2' : 15, 'ASCENT_3' : 30 }
-alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
+alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A', 'npPts']
 non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
 
 # Statistic helpers
@@ -43,6 +43,9 @@ def calculate_event_opr(df, eventCode):
 	opr.reset_index(inplace=True)
 	return opr
 
+def aggregate_event_matches(df):
+	agg_event = { x: 'sum' if x in alliance_stats + ['location' , 'ascent', 'win'] else 'count' for x in df.columns }
+	return df.groupby(['eventCode', 'teamNumber','playoff']).agg(agg_event).drop(columns=['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff'])
 
 
 # Pre: a match data dataframe, with playoff data removed
@@ -145,12 +148,36 @@ def process_event(mf, qf, pf, eventCode):
 # 	h = f.drop(labels=alliance_stats,axis=1)
 # 	return None
 
+def calc_adj_categories(stats):
+	stats['Bucket+'] = stats.Bucket + stats.Foul + stats['End of Round']
+	stats['Specimen+'] = stats.Specimen + stats.Foul + stats['End of Round']
+
+def calc_category_stats(stats, agg_matches):
+	stats['Bucket'] = stats['Bucket'] = 2 * (stats.aNet_O + stats.tNet_O) + 4 * (stats.aSMPL_O + stats.tSMPL_O) + 8 * (stats.aSMPH_O + stats.tSMPH_O)
+	stats['Specimen'] = 5 * (stats.aSPCL_O + stats.tSPCL_O) + 10 * (stats.aSPCH_O + stats.tSPCH_O) 
+	l = []
+	for i, r in stats.iterrows():
+		agg_row = agg_matches.loc[(r.eventCode, r.teamNumber, False)]
+		l.append((agg_row.location + agg_row.ascent) / agg_row.matchNumber)
+	stats['End of Round'] = l
+	stats['Foul'] = -5 * stats.miFoul_O + -15 * stats.maFoul_O
+
+def calc_auto_oprs(stats):
+	stats['AutoBucket'] = 2 * stats.aNet_O + 4 * stats.aSMPL_O+ 8 * stats.aSMPH_O
+	stats['AutoSpecimen'] = 5 * stats.aSPCL_O + 10 * stats.aSPCH_O
+
 # Goes through stats.pkl, and finds most recent/relavent information on each competitor
 # Looks at # of teams already qualified for States
 # Classifies Robots into Bucket, Specimen and Hybrid
 # Predicts value for top 6 Bucket, Specimen
-def generate_event_scouting_report(matches, stats, team_ids):
-	team_stats = stats[stats.teamNumber.str in team_ids]
+def generate_event_scouting_report(stats, agg_matches, team_ids):
+	team_stats = stats[stats.teamNumber.isin(team_ids)]
+	calc_category_stats(stats, agg_matches)
+	calc_auto_oprs(team_stats)
+	calc_adj_categories(team_stats)
+	report = team_stats[team_stats['Bucket+', 'Specimen+', 'Bucket', 'Specimen', 'AutoBucket', 'AutoSpecimen', 'End of Round', 'Foul', 'teamNumber', 'eventCode']]
+	report = report.groupby('teamNumber').sum()
+	
 	return None
 
 
@@ -167,5 +194,4 @@ def generate_event_scouting_report(matches, stats, team_ids):
 # Average individual values (location/ascent)
 
 
-
-# panther_power = [3900, 6549, 8393, 8509, 9820, 9821, 9981, 9982, 10098, 12792, 13474, 16011, 16564, 16762, 16776, 18603, 20223, 21364, 21598, 22312, 23671, 23744, 25661, 26446, 26986, 27368, 28391, 19934]
+# panther_power = [3900, 6549, 8393, 8509, 8645, 9820, 9821, 9981, 9982, 10098, 12792, 13474, 16011, 16564, 16762, 16776, 18603, 20223, 21364, 21598, 22312, 23671, 23744, 25661, 26446, 26986, 27368, 28391, 19934]
