@@ -23,12 +23,14 @@ def aggregate_alliance_stats(df):
 	return team_totals.drop(labels=non_alliance_labels,axis=1)
 
 def calculate_event_opr(df, eventCode):
+	df.sort_index(inplace=True)
 	team_matrix = initialize_team_matrix(df.teamNumber.unique())
 	schedule_matrix(df, team_matrix)
 	pinv = np.linalg.pinv(team_matrix)
 
 	opr = pd.DataFrame(columns=['eventCode', 'aNet_O', 'aSMPL_O', 'aSMPH_O', 'aSPCL_O', 'aSPCH_O', 'tNet_O', 'tSMPL_O', 'tSMPH_O', 'tSPCL_O', 'tSPCH_O', 'miFoul_O', 'maFoul_O'])
-	opr = opr.reindex(df.teamNumber.unique()).fillna(0) # TODO: Group by EVENT!!!!!!
+	opr = opr.reindex(df.teamNumber.unique()).fillna(0)
+	opr.sort_index(inplace=True)
 
 	team_totals = aggregate_alliance_stats(df)
 

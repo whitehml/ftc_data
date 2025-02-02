@@ -6,7 +6,7 @@ from src.ftc_api.ftc_requests import FtcRequests
 def calc_category_stats(stats, agg_stats):
 	stats['Bucket'] = stats['Bucket'] = 2 * (stats.aNet_O + stats.tNet_O) + 4 * (stats.aSMPL_O + stats.tSMPL_O) + 8 * (stats.aSMPH_O + stats.tSMPH_O)
 	stats['Specimen'] = 5 * (stats.aSPCL_O + stats.tSPCL_O) + 10 * (stats.aSPCH_O + stats.tSPCH_O) 
-	ascent= []
+	ascent = []
 	stdDev = []
 	for i, r in stats.iterrows():
 		agg_row = agg_stats.loc[(r.eventCode, r.teamNumber, False)]
