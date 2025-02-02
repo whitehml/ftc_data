@@ -9,6 +9,7 @@ non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'p
 
 # Statistic helpers
 def initialize_team_matrix(team_ids):
+	team_ids.sort()
 	df = pd.DataFrame(columns=team_ids)
 	return df.reindex(team_ids).fillna(0).sort_index()
 

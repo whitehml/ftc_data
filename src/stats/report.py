@@ -78,11 +78,14 @@ class Report:
 
 		agg_report = { x: 'mean' if x == 'stdDev' else 'max' for x in report.columns }
 		self.report = report.groupby('teamNumber').agg(agg_report)
+		for team in [x[0] for x in experience_map.items() if x[1] == 'none']:
+			self.report.loc[team] = [team] + [np.NaN] * 11
 		self.report['Experience'] = self.report.teamNumber.map(experience_map)
-		self.report.drop(labels=['eventCode'],axis=1,inplace=True)
+		self.report.insert(4,'teamName',self.report.teamNumber.map(team_dict))
+		self.report.drop(labels=['eventCode','teamNumber'],axis=1,inplace=True)
 
 	def display(self):
 		return self.report
 
 	def to_csv(self):
-		self.report.to_csv("reports/{}.csv".format(self.code),index=False)
+		self.report.to_csv("reports/{}.csv".format(self.code))
