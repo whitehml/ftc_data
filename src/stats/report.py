@@ -73,12 +73,13 @@ class Report:
 
 
 		# All the calculations should be done by now, just gathering and comparing now
-		report = team_stats[['teamNumber','Bucket+','Specimen+','AutoBucket', 'AutoSpecimen','End of Round','Foul','Bucket','Specimen','eventCode']]
+		report = team_stats[['teamNumber','Bucket+','Specimen+','stdDev','AutoBucket','AutoSpecimen','End of Round','Foul','Bucket','Specimen','eventCode']]
 		report['Last Data'] = report.eventCode.map(dict(zip(event_df['code'], event_df['date'])))
 
 		agg_report = { x: 'mean' if x == 'stdDev' else 'max' for x in report.columns }
 		self.report = report.groupby('teamNumber').agg(agg_report)
 		self.report['Experience'] = self.report.teamNumber.map(experience_map)
+		self.report.drop(labels=['eventCode'],axis=1,inplace=True)
 
 	def display(self):
 		return self.report

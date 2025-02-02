@@ -10,7 +10,7 @@ non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'p
 # Statistic helpers
 def initialize_team_matrix(team_ids):
 	df = pd.DataFrame(columns=team_ids)
-	return df.reindex(team_ids).fillna(0)
+	return df.reindex(team_ids).fillna(0).sort_index()
 
 def schedule_matrix(df, matrix):
 	for _, r in df.iterrows():
@@ -23,7 +23,6 @@ def aggregate_alliance_stats(df):
 	return team_totals.drop(labels=non_alliance_labels,axis=1)
 
 def calculate_event_opr(df, eventCode):
-	df.sort_index(inplace=True)
 	team_matrix = initialize_team_matrix(df.teamNumber.unique())
 	schedule_matrix(df, team_matrix)
 	pinv = np.linalg.pinv(team_matrix)
