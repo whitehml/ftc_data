@@ -1,15 +1,10 @@
 ﻿import pandas as pd
 import numpy as np
-from math import ceil
-
-# mf: Match Frame: overview of schedule, alliances and topline scores
-# qf: Qualifiers Frame: detailed alliance scoring for qualifier matches
-# pf: Playoffs Frame: detailed alliance scoring for playoff matches
-# returns a Dataframe with detailed match by match breakdown
+from src.ftc_api.ftc_requests import FtcRequests
 
 location_map = { 'NONE' : 0, 'OBSERVATION_ZONE' : 3, 'ASCENT' : 3 }
 ascent_map = { 'NONE' : 0, 'OBSERVATION_ZONE' : 3, 'ASCENT_1' : 5, 'ASCENT_2' : 15, 'ASCENT_3' : 30 }
-alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A', 'npPts']
+alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
 non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
 
 # Statistic helpers
@@ -33,7 +28,7 @@ def calculate_event_opr(df, eventCode):
 	pinv = np.linalg.pinv(team_matrix)
 
 	opr = pd.DataFrame(columns=['eventCode', 'aNet_O', 'aSMPL_O', 'aSMPH_O', 'aSPCL_O', 'aSPCH_O', 'tNet_O', 'tSMPL_O', 'tSMPH_O', 'tSPCL_O', 'tSPCH_O', 'miFoul_O', 'maFoul_O'])
-	opr = opr.reindex(df.teamNumber.unique()).fillna(0)
+	opr = opr.reindex(df.teamNumber.unique()).fillna(0) # TODO: Group by EVENT!!!!!!
 
 	team_totals = aggregate_alliance_stats(df)
 
@@ -44,9 +39,8 @@ def calculate_event_opr(df, eventCode):
 	return opr
 
 def aggregate_event_matches(df):
-	agg_event = { x: 'sum' if x in alliance_stats + ['location' , 'ascent', 'win'] else 'count' for x in df.columns }
-	return df.groupby(['eventCode', 'teamNumber','playoff']).agg(agg_event).drop(columns=['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff'])
-
+	agg_event = { x: 'sum' if x in ['location' , 'ascent', 'win'] else 'first' if x == 'stdDev' else 'count' for x in df.columns }
+	return df.groupby(['eventCode', 'teamNumber','playoff']).agg(agg_event).drop(columns=['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'npPts'] + alliance_stats)
 
 # Pre: a match data dataframe, with playoff data removed
 def calculate_opr(df):
@@ -57,24 +51,27 @@ def calculate_opr(df):
 	return oprs
 		
 	
-
-
 # Scouting report helpers
-def classify_teams(df, team_ids):
-	veteran = [id for id in team_ids if id in select_qualifiers(df).teamNumber.values]
-	trained = [id for id in team_ids if id in select_scrimmages(df).teamNumber.values and not id in veteran]
-	green = [id for id in team_ids if id not in veteran and id not in trained]
-	return {'veteran' : veteran, 'trained' : trained, 'green': green}
+def calc_npPts(df):
+	"""# of points scored by your alliance, minus opposing fouls and ally ascent points."""
+	df = df.replace({'location':location_map, 'ascent':ascent_map})
+	df['npPts'] = 2 * (df.aNet_A + df.tNet_A) + 4 * (df.aSMPL_A + df.tSMPL_A) + 8 * (df.aSMPH_A + df.tSMPH_A) + 5 * (df.aSPCL_A + df.tSPCL_A) + 10 * (df.aSPCH_A + df.tSPCH_A) + df.location + df.ascent
+	return df
 
-def select_qualifiers(df):
-	return df[df.eventCode.str[-1:] != 'S']
-
-def select_scrimmages(df):
-	return df[df.eventCode.str[-1:] == 'S']
-
-
+def std_by_event(df):
+	std_values = df.groupby(["eventCode", "teamNumber", "playoff"])["npPts"].std()
+	for i, r in df.iterrows():
+		df.loc[i, 'stdDev'] = std_values.loc[r.eventCode, r.teamNumber, r.playoff]
 
 def process_event(mf, qf, pf, eventCode):
+	"""
+	Returns a Dataframe with detailed match by match breakdown.
+
+	mf: Match Frame: overview of schedule, alliances and topline scores
+	qf: Qualifiers Frame: detailed alliance scoring for qualifier matches
+	pf: Playoffs Frame: detailed alliance scoring for playoff matches
+	"""
+
 	# Pre-Process matches
 	mf['red1'] = [0] * len(mf)
 	mf['red2'] = [0] * len(mf)
@@ -133,65 +130,32 @@ def process_event(mf, qf, pf, eventCode):
 
 	return df
 
+def update_matches(event_list, ftc_api: FtcRequests) -> pd.DataFrame:
+	event_data = ftc_api.get_events_data(event_list)
+	match_data = [pd.read_pickle('data/2024/matches.pkl')]
+	for code, event in zip(event_list, event_data):
+		match_data.append(process_event(event['mf'], event['qf'], event['pf'], code))
+	mf = pd.concat(match_data).reset_index(drop=True).drop_duplicates()
+	mf.to_pickle('data/2024/matches.pkl')
+	return mf
 
-# def aggregate_matches(df):
-# 	alliance_stats = ['aNet_A', 'aSMPL_A', 'aSMPH_A', 'aSPCL_A', 'aSPCH_A', 'tNet_A', 'tSMPL_A', 'tSMPH_A', 'tSPCL_A', 'tSPCH_A', 'miFoul_A', 'maFoul_A']
-# 	agg_d = { c: 'sum' if c in alliance_stats else 'count' for c in df.columns }
-# 	t = df.groupby(df['teamNumber']).agg(agg_d)
-# 	non_alliance_labels = ['teamNumber', 'station', 'partnerNumber', 'eventCode', 'playoff', 'win', 'location', 'ascent']
-# 	t = t.drop(labels = non_alliance_labels,axis=1)
-# 	f = t.div(t.matchNumber,axis=0).drop(labels=['matchNumber'],axis=1)
-# 	f['Bucket'] = 2 * (f.aNet_A + f.tNet_A) + 4 * (f.aSMPL_A + f.tSMPL_A) + 8 * (f.aSMPH_A + f.tSMPH_A)
-# 	f['Specimen'] = 5 * (f.aSPCL_A + f.tSPCL_A) + 10 * (f.aSPCH_A + f.tSPCH_A)
-# 	f['Ascent'] = location_map[f.location] + ascent_map[f.ascent]
-# 	f['Foul'] = -5 * f.miFoul_A + -15 * f.maFoul_A
-# 	h = f.drop(labels=alliance_stats,axis=1)
-# 	return None
+def update_opr(matches):
+	oprs = calculate_opr(matches)
+	df = pd.concat(oprs).reset_index(drop=True)
+	df = df.rename({'index':'teamNumber'},axis=1)
+	df.to_pickle('data/2024/stats.pkl')
 
-def calc_adj_categories(stats):
-	stats['Bucket+'] = stats.Bucket + stats.Foul + stats['End of Round']
-	stats['Specimen+'] = stats.Specimen + stats.Foul + stats['End of Round']
+def update_aggregations(matches):
+	matches = calc_npPts(matches)
+	std_by_event(matches)
+	matches.win = matches.win.astype(int)
+	agg = aggregate_event_matches(matches)
+	agg.to_pickle('data/2024/agg_stats.pkl')
 
-def calc_category_stats(stats, agg_matches):
-	stats['Bucket'] = stats['Bucket'] = 2 * (stats.aNet_O + stats.tNet_O) + 4 * (stats.aSMPL_O + stats.tSMPL_O) + 8 * (stats.aSMPH_O + stats.tSMPH_O)
-	stats['Specimen'] = 5 * (stats.aSPCL_O + stats.tSPCL_O) + 10 * (stats.aSPCH_O + stats.tSPCH_O) 
-	l = []
-	for i, r in stats.iterrows():
-		agg_row = agg_matches.loc[(r.eventCode, r.teamNumber, False)]
-		l.append((agg_row.location + agg_row.ascent) / agg_row.matchNumber)
-	stats['End of Round'] = l
-	stats['Foul'] = -5 * stats.miFoul_O + -15 * stats.maFoul_O
-
-def calc_auto_oprs(stats):
-	stats['AutoBucket'] = 2 * stats.aNet_O + 4 * stats.aSMPL_O+ 8 * stats.aSMPH_O
-	stats['AutoSpecimen'] = 5 * stats.aSPCL_O + 10 * stats.aSPCH_O
-
-# Goes through stats.pkl, and finds most recent/relavent information on each competitor
-# Looks at # of teams already qualified for States
-# Classifies Robots into Bucket, Specimen and Hybrid
-# Predicts value for top 6 Bucket, Specimen
-def generate_event_scouting_report(stats, agg_matches, team_ids):
-	team_stats = stats[stats.teamNumber.isin(team_ids)]
-	calc_category_stats(stats, agg_matches)
-	calc_auto_oprs(team_stats)
-	calc_adj_categories(team_stats)
-	report = team_stats[team_stats['Bucket+', 'Specimen+', 'Bucket', 'Specimen', 'AutoBucket', 'AutoSpecimen', 'End of Round', 'Foul', 'teamNumber', 'eventCode']]
-	report = report.groupby('teamNumber').sum()
-	
-	return None
-
-
-# On disk ###
-# - intothedeep_matches.pkl
-# Every match from the perspective of each team (4 lines per match).
-# Has every FTC provided stat, inclused match #, qual/playoff and event code.
-#
-# - intothedeep_stats.pkl
-# A line for every team/event combo.
-# Average alliance values (non-playoff)
-# Adjusted least squares fit
-# Role assigned values
-# Average individual values (location/ascent)
-
-
-# panther_power = [3900, 6549, 8393, 8509, 8645, 9820, 9821, 9981, 9982, 10098, 12792, 13474, 16011, 16564, 16762, 16776, 18603, 20223, 21364, 21598, 22312, 23671, 23744, 25661, 26446, 26986, 27368, 28391, 19934]
+def update_statistics(event_list, ftc_api: FtcRequests):
+	"""Updates FTC Into the Deep tracked statistics for events listed by ID. 2024 only."""
+	matches = update_matches(event_list, ftc_api)
+	matches.playoff = matches.playoff.astype('bool')
+	matches = matches[~matches.playoff]
+	update_opr(matches)
+	update_aggregations(matches)
