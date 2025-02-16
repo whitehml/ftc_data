@@ -146,6 +146,7 @@ def update_opr(matches):
 	df = pd.concat(oprs).reset_index(drop=True)
 	df = df.rename({'index':'teamNumber'},axis=1)
 	df.to_pickle('data/2024/stats.pkl')
+	return df
 
 def update_aggregations(matches):
 	matches = calc_npPts(matches)
@@ -154,10 +155,94 @@ def update_aggregations(matches):
 	agg = aggregate_event_matches(matches)
 	agg.to_pickle('data/2024/agg_stats.pkl')
 
+def fillna_as_ints(df):
+	for col in df.select_dtypes(include=['number']).columns:
+		df[col] = pd.to_numeric(df[col]).fillna(0).astype(int)
+	return df
+
+def find_fit(row):
+	fits = [row.fit0, row.fit1, row.fit2, row.fit3]
+	return fits.index(min(fits))
+
+def split_stats(stat_list, bot1, bot2, bot1_dict, bot2_dict):
+	for stat in stat_list:
+		actual = bot1[stat + "_A"]
+		expected1 = max(0, bot1[stat + "_O"])
+		expected2 = max(0, bot2[stat + "_O"])
+		combined_pr = expected1 + expected2
+		if combined_pr != 0 and actual > 0:
+			bot1_dict[stat] = round(expected1 * actual / combined_pr)
+			bot2_dict[stat] = round(expected2 * actual / combined_pr)
+
+def get_disaggregate(bot1, bot2):
+	fit = find_fit(bot1)
+	row = bot1
+	bot1_dict = {'teamNumber': bot1.teamNumber, 'eventCode': bot1.eventCode, 'playoff': bot1.playoff, 'matchNumber': bot1.matchNumber}
+	bot2_dict = {'teamNumber': bot2.teamNumber, 'eventCode': bot2.eventCode, 'playoff': bot2.playoff, 'matchNumber': bot2.matchNumber}
+	if fit == 0:
+		bot1_dict['isBucket'] = 1
+		for stat in ['aNet', 'tNet' , 'aSMPL' , 'tSMPL' , 'aSMPH', 'tSMPH']:
+			bot1_dict[stat] = row[stat + '_A']
+		bot2_dict['isSpecimen'] = 1
+		for stat in ['aSPCL', 'tSPCL' ,'aSPCH', 'tSPCH']:
+			bot2_dict[stat] = row[stat + '_A']
+	elif fit == 1:
+		bot2_dict['isBucket'] = 1
+		for stat in ['aNet', 'tNet' , 'aSMPL' , 'tSMPL' , 'aSMPH', 'tSMPH']:
+			bot2_dict[stat] = row[stat + '_A']
+		bot1_dict['isSpecimen'] = 1
+		for stat in ['aSPCL', 'tSPCL' ,'aSPCH', 'tSPCH']:
+			bot1_dict[stat] = row[stat + '_A']
+	else:
+		if fit == 2:
+			bot1_dict['isBucket'] = 1
+			bot2_dict['isBucket'] = 1
+		else:
+			bot1_dict['isSpecimen'] = 1
+			bot2_dict['isSpecimen'] = 1
+		# Split each stat
+		split_stats(['aNet', 'tNet' , 'aSMPL' , 'tSMPL' , 'aSMPH', 'tSMPH','aSPCL', 'tSPCL' ,'aSPCH', 'tSPCH'], bot1, bot2, bot1_dict, bot2_dict)
+	# Always split fouls
+	split_stats(['miFoul', 'maFoul'], bot1, bot2, bot1_dict, bot2_dict)
+	return (bot1_dict, bot2_dict)
+
+def disaggregate_groups(groups):
+	g = []
+	for _, group in groups:
+		f = get_disaggregate(group.iloc[0], group.iloc[1])
+		g.append(f[0])
+		g.append(f[1])
+	return g
+
+def update_disaggregate_matches(matches, stats):
+	df = matches
+	df['tBucket'] = 2 * (df.tNet_A) + 4 * (df.tSMPL_A) + 8 * (df.tSMPH_A)
+	df['tSpecimen'] = 5 * (df.tSPCL_A) + 10 * (df.tSPCH_A)
+	stats['tPotential'] = 2 * (stats.tNet_O) + 4 * (stats.tSMPL_O) + 8 * (stats.tSMPH_O) + 5 * (stats.tSPCL_O) + 10 * (stats.tSPCH_O)
+	df = pd.merge(df, stats, on=['eventCode', 'teamNumber'], how="inner")
+	df['tPotentialPartner'] = pd.merge(df, stats[['eventCode', 'teamNumber', 'tPotential']], left_on=['eventCode', 'partnerNumber'], right_on=['eventCode', 'teamNumber'], how="left").tPotential_y
+	df['fit0'] = abs(df.tBucket - df.tPotential) + abs(df.tSpecimen - df.tPotentialPartner)
+	df['fit1'] = abs(df.tBucket - df.tPotentialPartner) + abs(df.tSpecimen - df.tPotential)
+	df['fit2'] = abs(df.tBucket - df.tPotential - df.tPotentialPartner) + df.tSpecimen * 1.5
+	df['fit3'] = abs(df.tSpecimen - df.tPotential - df.tPotentialPartner) + df.tBucket * 1.5
+	groups = df.groupby(['eventCode',df['station'].str[:-1],'playoff','matchNumber'])
+	disag_df = pd.DataFrame(disaggregate_groups(groups))
+	disag_df = fillna_as_ints(disag_df)
+	df = pd.merge(df, disag_df, on=['teamNumber', 'eventCode','playoff','matchNumber'], how='inner')
+	df['Fouls'] = df.miFoul * -5 + df.maFoul *-15
+	df['Bucket'] = 2 * (df.aNet + df.tNet) + 4 * (df.aSMPL + df.tSMPL) + 8 * (df.aSMPH + df.tSMPH)
+	df['Specimen'] = 5 * (df.aSPCL + df.tSPCL) + 10 * (df.aSPCH + df.tSPCH)
+	df['Auto'] = 2 * df.aNet + 4 * df.aSMPL + 8 * df.aSMPH + 6 * df.aSPCL + 8 * df.aSPCH + df.location.map(location_map)
+	df['EndGame'] = df.ascent.map(ascent_map)
+	df['Pts'] = df.Bucket + df.Specimen + df.location.map(location_map) + df.EndGame + df.Fouls
+	disagg_matches = df[['teamNumber', 'station', 'partnerNumber', 'eventCode', 'matchNumber','playoff', 'win', 'location', 'ascent', 'aNet', 'tNet', 'aSMPL', 'tSMPL', 'aSMPH', 'tSMPH','aSPCL', 'tSPCL', 'tSPCH','aSPCH','miFoul', 'maFoul','Auto','EndGame', 'Fouls', 'Bucket', 'Specimen', 'isBucket', 'isSpecimen', 'Pts']]
+	disagg_matches.to_pickle('data/2024/disagg_matches.pkl')
+
 def update_statistics(event_list, ftc_api: FtcRequests):
 	"""Updates FTC Into the Deep tracked statistics for events listed by ID. 2024 only."""
 	matches = update_matches(event_list, ftc_api)
 	matches.playoff = matches.playoff.astype('bool')
-	matches = matches[~matches.playoff]
-	update_opr(matches)
-	update_aggregations(matches)
+	reg_matches = matches[~matches.playoff]
+	stats = update_opr(reg_matches)
+	update_aggregations(reg_matches)
+	disagg_matches = update_disaggregate_matches(reg_matches, stats)
