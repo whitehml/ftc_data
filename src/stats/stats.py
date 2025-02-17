@@ -221,8 +221,8 @@ def update_disaggregate_matches(matches, stats):
 	stats['tPotential'] = 2 * (stats.tNet_O) + 4 * (stats.tSMPL_O) + 8 * (stats.tSMPH_O) + 5 * (stats.tSPCL_O) + 10 * (stats.tSPCH_O)
 	df = pd.merge(df, stats, on=['eventCode', 'teamNumber'], how="inner")
 	df['tPotentialPartner'] = pd.merge(df, stats[['eventCode', 'teamNumber', 'tPotential']], left_on=['eventCode', 'partnerNumber'], right_on=['eventCode', 'teamNumber'], how="left").tPotential_y
-	df['fit0'] = abs(df.tBucket - df.tPotential) + abs(df.tSpecimen - df.tPotentialPartner)
-	df['fit1'] = abs(df.tBucket - df.tPotentialPartner) + abs(df.tSpecimen - df.tPotential)
+	df['fit0'] = abs(df.tBucket - df.tPotential - df.tSMPH_O) + abs(df.tSpecimen - df.tPotentialPartner + df.tSPCH_O)
+	df['fit1'] = abs(df.tBucket - df.tPotentialPartner + df.tSMPH_O) + abs(df.tSpecimen - df.tPotential - df.tSPCH_O)
 	df['fit2'] = abs(df.tBucket - df.tPotential - df.tPotentialPartner) + df.tSpecimen * 1.5
 	df['fit3'] = abs(df.tSpecimen - df.tPotential - df.tPotentialPartner) + df.tBucket * 1.5
 	groups = df.groupby(['eventCode',df['station'].str[:-1],'playoff','matchNumber'])
@@ -238,6 +238,25 @@ def update_disaggregate_matches(matches, stats):
 	disagg_matches = df[['teamNumber', 'station', 'partnerNumber', 'eventCode', 'matchNumber','playoff', 'win', 'location', 'ascent', 'aNet', 'tNet', 'aSMPL', 'tSMPL', 'aSMPH', 'tSMPH','aSPCL', 'tSPCL', 'tSPCH','aSPCH','miFoul', 'maFoul','Auto','EndGame', 'Fouls', 'Bucket', 'Specimen', 'isBucket', 'isSpecimen', 'Pts']]
 	disagg_matches.to_pickle('data/2024/disagg_matches.pkl')
 
+def update_team_stats(disagg_matches):
+	disagg_matches.win = disagg_matches.win.map({False:0,True:1})
+	disagg_matches.location = disagg_matches.location.map(location_map)
+	disagg_matches.ascent = disagg_matches.ascent.map(ascent_map)
+	disagg_matches.drop(columns=['station', 'partnerNumber', 'playoff', 'isSpecimen'], inplace=True)
+	agg_disagg = { x: 'count' if x in ['matchNumber'] else 'sum' for x in disagg_matches.columns }
+	groups = disagg_matches.groupby(['teamNumber', 'eventCode', 'isBucket'])
+	std_dev = groups.std()[['Bucket', 'Specimen', 'Pts']]
+	std_dev = std_dev.add_prefix('σ ')
+	max_pts = groups.max()[['Bucket', 'Specimen', 'Pts']]
+	max_pts = max_pts.add_prefix('Max ')
+	df = groups.agg(agg_disagg)
+	df.drop(columns=['teamNumber', 'eventCode', 'isBucket'],inplace=True)
+	df.rename(columns={'Bucket':'x̄ Bucket', 'Specimen': 'x̄ Specimen', 'Pts':'x̄ Pts'},inplace=True)
+	df = pd.merge(df, std_dev, left_index=True, right_index=True)
+	df = pd.merge(df, max_pts, left_index=True, right_index=True)
+	df.fillna(0, inplace=True)
+	df.to_pickle('data/2024/disagg_stats.pkl')
+
 def update_statistics(event_list, ftc_api: FtcRequests):
 	"""Updates FTC Into the Deep tracked statistics for events listed by ID. 2024 only."""
 	matches = update_matches(event_list, ftc_api)
@@ -245,4 +264,5 @@ def update_statistics(event_list, ftc_api: FtcRequests):
 	reg_matches = matches[~matches.playoff]
 	stats = update_opr(reg_matches)
 	update_aggregations(reg_matches)
-	disagg_matches = update_disaggregate_matches(reg_matches, stats)
+	disagg_matches = update_disaggregate_matches(matches, stats)
+	update_team_stats(disagg_matches)

@@ -4,6 +4,8 @@ from src.ftc_api.ftc_requests import FtcRequests
 from src.stats import stats
 from src.stats.report import Report
 
+team_filter = ['matchNumber', 'win', 'location', 'ascent', 'Auto', 'EndGame', 'Fouls', 'x̄ Bucket', 'x̄ Specimen', 'x̄ Pts', 'σ Bucket', 'σ Specimen', 'σ Pts', 'Max Bucket', 'Max Specimen', 'Max Pts']
+
 # User terminal function to access code
 
 ### Access Database
