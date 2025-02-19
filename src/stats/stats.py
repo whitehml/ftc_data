@@ -160,8 +160,7 @@ def fillna_as_ints(df):
 		df[col] = pd.to_numeric(df[col]).fillna(0).astype(int)
 	return df
 
-def find_fit(row):
-	fits = [row.fit0, row.fit1, row.fit2, row.fit3]
+def find_fit(fits: list):
 	return fits.index(min(fits))
 
 def split_stats(stat_list, bot1, bot2, bot1_dict, bot2_dict):
@@ -174,11 +173,38 @@ def split_stats(stat_list, bot1, bot2, bot1_dict, bot2_dict):
 			bot1_dict[stat] = round(expected1 * actual / combined_pr)
 			bot2_dict[stat] = round(expected2 * actual / combined_pr)
 
+def calculate_potentials(bot, type):
+	SPEC_FACTOR = 0.8
+	tBucket = 2 * (bot[type + "Net_O"]) + 4 * (bot[type + "SMPL_O"]) + 8 * (bot[type + "SMPH_O"])
+	tSpecimen = 6 * (bot[type + "SPCL_O"]) + 10 * (bot[type + "SPCH_O"])
+	return (tBucket + SPEC_FACTOR * tSpecimen, tSpecimen + SPEC_FACTOR * tBucket)
+
+def calculate_actuals(row, type):
+	tBucket = 2 * (row[type + "Net_A"]) + 4 * (row[type + "SMPL_A"]) + 8 * (row[type + "SMPH_A"])
+	tSpecimen = 6 * (row[type + "SPCL_A"]) + 10 * (row[type + "SPCH_A"])
+	return (tBucket, tSpecimen)
+
 def get_disaggregate(bot1, bot2):
-	fit = find_fit(bot1)
 	row = bot1
-	bot1_dict = {'teamNumber': bot1.teamNumber, 'eventCode': bot1.eventCode, 'playoff': bot1.playoff, 'matchNumber': bot1.matchNumber}
-	bot2_dict = {'teamNumber': bot2.teamNumber, 'eventCode': bot2.eventCode, 'playoff': bot2.playoff, 'matchNumber': bot2.matchNumber}
+	# Calculate Actuals
+	tBucket, tSpecimen = calculate_actuals(row, 't')
+	aBucket, aSpecimen = calculate_actuals(row, 'a')
+
+	#Calculate Potentials
+	tPotential1B, tPotential1S = calculate_potentials(bot1, 't')
+	tPotential2B, tPotential2S = calculate_potentials(bot2, 't')
+	aPotential1B, aPotential1S = calculate_potentials(bot1, 'a')
+	aPotential2B, aPotential2S = calculate_potentials(bot2, 'a')
+
+	# Calulate fits
+	fit0 = abs(tBucket - tPotential1B) + abs(tSpecimen - tPotential2S) + abs(aBucket - aPotential1B) + abs(aSpecimen - aPotential2S)
+	fit1 = abs(tBucket - tPotential2B) + abs(tSpecimen - tPotential1S) + abs(aBucket - aPotential2B) + abs(aSpecimen - aPotential1S)
+	fit2 = abs(tBucket - tPotential1B - tPotential2B) + abs(aBucket - aPotential1B - aPotential2B) + tSpecimen * 1.5
+	fit3 = abs(tSpecimen - tPotential1S - tPotential2S) + abs(aSpecimen - aPotential1S - aPotential2S) + tBucket * 2.5
+	
+	fit = find_fit([fit0,fit1,fit2,fit3])
+	bot1_dict = {'teamNumber': bot1.teamNumber, 'eventCode': bot1.eventCode, 'playoff': bot1.playoff, 'matchNumber': bot1.matchNumber, 'fit0': fit0,'fit1': fit1,'fit2': fit2,'fit3': fit3,}
+	bot2_dict = {'teamNumber': bot2.teamNumber, 'eventCode': bot2.eventCode, 'playoff': bot2.playoff, 'matchNumber': bot2.matchNumber, 'fit0': fit1,'fit1': fit0,'fit2': fit2,'fit3': fit3,}
 	if fit == 0:
 		bot1_dict['isBucket'] = 1
 		for stat in ['aNet', 'tNet' , 'aSMPL' , 'tSMPL' , 'aSMPH', 'tSMPH']:
@@ -216,15 +242,7 @@ def disaggregate_groups(groups):
 
 def update_disaggregate_matches(matches, stats):
 	df = matches
-	df['tBucket'] = 2 * (df.tNet_A) + 4 * (df.tSMPL_A) + 8 * (df.tSMPH_A)
-	df['tSpecimen'] = 6 * (df.tSPCL_A) + 10 * (df.tSPCH_A)
-	stats['tPotential'] = 2 * (stats.tNet_O) + 4 * (stats.tSMPL_O) + 8 * (stats.tSMPH_O) + 6 * (stats.tSPCL_O) + 10 * (stats.tSPCH_O)
 	df = pd.merge(df, stats, on=['eventCode', 'teamNumber'], how="inner")
-	df['tPotentialPartner'] = pd.merge(df, stats[['eventCode', 'teamNumber', 'tPotential']], left_on=['eventCode', 'partnerNumber'], right_on=['eventCode', 'teamNumber'], how="left").tPotential_y
-	df['fit0'] = abs(df.tBucket - df.tPotential - df.tSMPH_O) + abs(df.tSpecimen - df.tPotentialPartner + df.tSPCH_O)
-	df['fit1'] = abs(df.tBucket - df.tPotentialPartner + df.tSMPH_O) + abs(df.tSpecimen - df.tPotential - df.tSPCH_O)
-	df['fit2'] = abs(df.tBucket - df.tPotential - df.tPotentialPartner) + df.tSpecimen * 1.5
-	df['fit3'] = abs(df.tSpecimen - df.tPotential - df.tPotentialPartner) + df.tBucket * 1.5
 	groups = df.groupby(['eventCode',df['station'].str[:-1],'playoff','matchNumber'])
 	disag_df = pd.DataFrame(disaggregate_groups(groups))
 	disag_df = fillna_as_ints(disag_df)
