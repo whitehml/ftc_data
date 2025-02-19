@@ -57,7 +57,7 @@ def calculate_opr(df):
 def calc_npPts(df):
 	"""# of points scored by your alliance, minus opposing fouls and ally ascent points."""
 	df = df.replace({'location':location_map, 'ascent':ascent_map})
-	df['npPts'] = 2 * (df.aNet_A + df.tNet_A) + 4 * (df.aSMPL_A + df.tSMPL_A) + 8 * (df.aSMPH_A + df.tSMPH_A) + 5 * (df.aSPCL_A + df.tSPCL_A) + 10 * (df.aSPCH_A + df.tSPCH_A) + df.location + df.ascent
+	df['npPts'] = 2 * (df.aNet_A + df.tNet_A) + 4 * (df.aSMPL_A + df.tSMPL_A) + 8 * (df.aSMPH_A + df.tSMPH_A) + 6 * (df.aSPCL_A + df.tSPCL_A) + 10 * (df.aSPCH_A + df.tSPCH_A) + df.location + df.ascent
 	return df
 
 def std_by_event(df):
@@ -217,8 +217,8 @@ def disaggregate_groups(groups):
 def update_disaggregate_matches(matches, stats):
 	df = matches
 	df['tBucket'] = 2 * (df.tNet_A) + 4 * (df.tSMPL_A) + 8 * (df.tSMPH_A)
-	df['tSpecimen'] = 5 * (df.tSPCL_A) + 10 * (df.tSPCH_A)
-	stats['tPotential'] = 2 * (stats.tNet_O) + 4 * (stats.tSMPL_O) + 8 * (stats.tSMPH_O) + 5 * (stats.tSPCL_O) + 10 * (stats.tSPCH_O)
+	df['tSpecimen'] = 6 * (df.tSPCL_A) + 10 * (df.tSPCH_A)
+	stats['tPotential'] = 2 * (stats.tNet_O) + 4 * (stats.tSMPL_O) + 8 * (stats.tSMPH_O) + 6 * (stats.tSPCL_O) + 10 * (stats.tSPCH_O)
 	df = pd.merge(df, stats, on=['eventCode', 'teamNumber'], how="inner")
 	df['tPotentialPartner'] = pd.merge(df, stats[['eventCode', 'teamNumber', 'tPotential']], left_on=['eventCode', 'partnerNumber'], right_on=['eventCode', 'teamNumber'], how="left").tPotential_y
 	df['fit0'] = abs(df.tBucket - df.tPotential - df.tSMPH_O) + abs(df.tSpecimen - df.tPotentialPartner + df.tSPCH_O)
@@ -231,7 +231,7 @@ def update_disaggregate_matches(matches, stats):
 	df = pd.merge(df, disag_df, on=['teamNumber', 'eventCode','playoff','matchNumber'], how='inner')
 	df['Fouls'] = df.miFoul * -5 + df.maFoul *-15
 	df['Bucket'] = 2 * (df.aNet + df.tNet) + 4 * (df.aSMPL + df.tSMPL) + 8 * (df.aSMPH + df.tSMPH)
-	df['Specimen'] = 5 * (df.aSPCL + df.tSPCL) + 10 * (df.aSPCH + df.tSPCH)
+	df['Specimen'] = 6 * (df.aSPCL + df.tSPCL) + 10 * (df.aSPCH + df.tSPCH)
 	df['Auto'] = 2 * df.aNet + 4 * df.aSMPL + 8 * df.aSMPH + 6 * df.aSPCL + 8 * df.aSPCH + df.location.map(location_map)
 	df['EndGame'] = df.ascent.map(ascent_map)
 	df['Pts'] = df.Bucket + df.Specimen + df.location.map(location_map) + df.EndGame + df.Fouls
