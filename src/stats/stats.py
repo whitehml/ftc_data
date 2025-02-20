@@ -253,8 +253,9 @@ def update_disaggregate_matches(matches, stats):
 	df['Auto'] = 2 * df.aNet + 4 * df.aSMPL + 8 * df.aSMPH + 6 * df.aSPCL + 8 * df.aSPCH + df.location.map(location_map)
 	df['EndGame'] = df.ascent.map(ascent_map)
 	df['Pts'] = df.Bucket + df.Specimen + df.location.map(location_map) + df.EndGame + df.Fouls
-	disagg_matches = df[['teamNumber', 'station', 'partnerNumber', 'eventCode', 'matchNumber','playoff', 'win', 'location', 'ascent', 'aNet', 'tNet', 'aSMPL', 'tSMPL', 'aSMPH', 'tSMPH','aSPCL', 'tSPCL', 'tSPCH','aSPCH','miFoul', 'maFoul','Auto','EndGame', 'Fouls', 'Bucket', 'Specimen', 'isBucket', 'isSpecimen', 'Pts']]
+	disagg_matches = df[['teamNumber', 'station', 'partnerNumber', 'eventCode', 'matchNumber','playoff', 'win', 'location', 'ascent', 'aNet', 'tNet', 'aSMPL', 'tSMPL', 'aSMPH', 'tSMPH','aSPCL', 'tSPCL', 'tSPCH','aSPCH','miFoul', 'maFoul','Auto','EndGame', 'Fouls', 'Bucket', 'Specimen', 'isBucket', 'isSpecimen', 'Pts', 'fit0', 'fit1', 'fit2', 'fit3']]
 	disagg_matches.to_pickle('data/2024/disagg_matches.pkl')
+	return disagg_matches
 
 def update_team_stats(disagg_matches):
 	disagg_matches.win = disagg_matches.win.map({False:0,True:1})
