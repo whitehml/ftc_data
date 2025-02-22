@@ -56,13 +56,9 @@ def beautify_matches(df: pd.DataFrame, team_dict):
 	df.insert(loc=1,column='Team Name',value=df.teamNumber.map(team_dict))
 	df.insert(loc=4,column='Partner Name',value=df.partnerNumber.map(team_dict))
 	df.rename(columns={'teamNumber': 'Team ID', 'partnerNumber': 'Partner ID', 'matchNumber': 'Match #'},inplace=True)
-	df.drop(columns=['eventCode'],inplace=True)
+	df.rename(columns={'fit0': 'Fit: Bucket', 'fit1': 'Fit: Specimen', 'fit2': 'Fit: Both Buckets', 'fit3' : "Fit: Both Specimens"},inplace=True)
+	df.drop(columns=['eventCode', 'Bucket', 'Auto', 'Endgame', 'Fouls'],inplace=True)
 	return df
-
-def limit_noise_variance(stats: pd.DataFrame):
-		stats.loc[pd.IndexSlice[:,:,0], 'σ Bucket'] = 0
-		stats.loc[pd.IndexSlice[:,:,1], 'σ Specimen'] = 0
-
 
 
 class Report:
@@ -79,7 +75,7 @@ class Report:
 		self.code = event_code
 		self.report = pd.DataFrame()
 		self.stat_filter = ['matchNumber', 'Auto', 'EndGame', 'Fouls', 'x̄ Bucket', 'x̄ Specimen', 'x̄ Pts', 'σ Bucket',  'σ Specimen', 'σ Pts', 'Max Bucket', 'Max Specimen', 'Max Pts']
-		self.report_filter = ['σ Bucket', 'x̄ Bucket', 'teamNumber', 'Team Name', 'σ Specimen', 'x̄ Specimen', 'x̄ Pts', 'σ Pts', 'Max Pts', 'Auto', 'EndGame', 'Fouls']
+		self.report_filter = ['σ Bucket', 'x̄ Bucket', 'teamNumber', 'Team Name', 'x̄ Specimen', 'σ Specimen', 'x̄ Pts', 'σ Pts', 'Max Pts', 'Auto', 'EndGame', 'Fouls']
 
 	# Helpers
 	def prep_for_aggregation(self, stats: pd.DataFrame):
@@ -94,57 +90,74 @@ class Report:
 	def to_csv(self):
 		directory = os.path.dirname(f"reports/{self.code}.csv")
 		os.makedirs(directory, exist_ok=True)
-		self.report.to_csv(f"reports/{self.code}.csv")
+		self.report.to_csv(f"reports/{self.code}.csv", index=False)
 
 class Prelook(Report):
 	"""
 	An event specific scouting report that precedes the event
 	"""
 	def __init__(self, event_code, team_dict):
-		super.__init__(event_code)
+		super().__init__(event_code)
 		team_ids = team_dict.keys()
 
 		event_df = pd.read_pickle('data/2024/events.pkl')
 		stats = pd.read_pickle('data/2024/disagg_stats.pkl')
 		exp_map = classify_teams(stats, team_ids)
 
-		team_stats = stats.loc[team_ids]
-		limit_noise_variance(team_stats)
+		team_stats = stats.loc[stats.index.get_level_values(0).isin(team_ids)]
+		team_stats.loc[pd.IndexSlice[:,:,0], 'σ Bucket'] = 0
+		team_stats.loc[pd.IndexSlice[:,:,1], 'σ Specimen'] = 0
 		std_dev = pool_pts_variance(team_stats, team_stats.groupby(['teamNumber', 'eventCode']))
 		team_stats = self.prep_for_aggregation(team_stats)
+		team_stats['Last Data'] = team_stats.index.get_level_values(1).map(dict(zip(event_df['code'], event_df['date'])))
 		agg_team_data = { x: 'sum' if x in ['matchNumber','Auto', 'EndGame', 'Fouls', 'x̄ Pts'] else 'max' for x in team_stats.columns }
 		team_stats = team_stats.groupby(['teamNumber', 'eventCode']).agg(agg_team_data)
 		recombine_variance(team_stats, std_dev)
 
-		agg_potential = { x: 'mean' if x in ['Fouls'] else 'max' for x in team_stats.columns } # TODO get variance on Buckets and Specimens where the max happens
+		max_bucket_dev = team_stats[['x̄ Bucket','σ Bucket']].sort_values('x̄ Bucket',ascending=False)['σ Bucket'].groupby('teamNumber').agg('first')
+		max_specimen_dev = team_stats[['x̄ Specimen','σ Specimen']].sort_values('x̄ Specimen',ascending=False)['σ Specimen'].groupby('teamNumber').agg('first')
+
+		agg_potential = { x: 'mean' if x in ['Fouls'] else 'max' for x in team_stats.columns }
 		team_stats = team_stats.groupby('teamNumber').agg(agg_potential)
+		team_stats['σ Bucket'] = max_bucket_dev
+		team_stats['σ Specimen'] = max_specimen_dev
 
-		#TODO make report stuff pretty
-		# report['Last Data'] = report.eventCode.map(dict(zip(event_df['code'], event_df['date'])))
-		
-		# for team in [x[0] for x in experience_map.items() if x[1] == 'none']:
-		# 	self.report.loc[team] = [team] + [np.NaN] * 11
+		report = team_stats
 
-		# self.report['Experience'] = self.report.teamNumber.map(experience_map)
-		# self.report.insert(4,'Team Name',self.report.teamNumber.map(team_dict))
-		# self.report.drop(labels=['eventCode','teamNumber'],axis=1,inplace=True)
+		disagg_matches = pd.read_pickle('data/2024/disagg_matches.pkl')
+		disagg_matches = disagg_matches.loc[disagg_matches.teamNumber.isin(team_ids)]
+		max_stats = disagg_matches.groupby(['teamNumber']).agg('max')
 		
+		for team in [x[0] for x in exp_map.items() if x[1] == 'none']:
+			report.loc[team] = [np.NaN] * 14
+
+		report['Experience'] = report.index.get_level_values(0).map(exp_map)
+		report.insert(4,'Team Name',report.index.get_level_values(0).map(team_dict))
+		report.reset_index(inplace=True)
+		self.report = report[self.report_filter + ["Last Data","Experience"]].copy()
+		self.report.sort_values(by='teamNumber',inplace=True)
+		self.report.rename(columns={'teamNumber':'Team ID'},inplace=True)
+		self.report.insert(0, 'Max High Samples', max_stats.reset_index().tSMPH)
+		self.report.insert(7, 'Max High Specimens', max_stats.reset_index().tSPCH)
+
 
 class Live_Report(Report):
 	"""
 	An event specific scouting report that uses live data during the event
 	"""
 	def __init__(self, event_code, ftc_api: FtcRequests):
-		super.__init__(event_code)
-		team_dict = ftc_api.get_event_teams(event_code)
-		update_statistics(event_code, ftc_api)
+		super().__init__(event_code)
+		team_dict = ftc_api.get_event_teams(self.code)
+		update_statistics([self.code], ftc_api)
 
 		stats = pd.read_pickle('data/2024/disagg_stats.pkl')
-		stats = stats.xs(self.eventCode,level='eventCode')
+		stats = stats.xs(self.code,level='eventCode')
 
-		limit_noise_variance(stats)
+		stats.loc[pd.IndexSlice[:,0], 'σ Bucket'] = 0
+		stats.loc[pd.IndexSlice[:,1], 'σ Specimen'] = 0
 		std_dev = pool_pts_variance(stats, stats.groupby('teamNumber'))
-		stats = self.prep_for_aggregation(stats)
+		stats = self.prep_for_aggregation(stats) # TODO: sort out multiply shenanigans
+		stats[['Auto', 'EndGame', 'Fouls', 'x̄ Pts']] = stats[['Auto', 'EndGame', 'Fouls', 'x̄ Pts']].multiply(stats.matchNumber,axis='index')
 		agg_team_data = { x: 'sum' if x in ['matchNumber','Auto', 'EndGame', 'Fouls', 'x̄ Pts'] else 'max' for x in stats.columns }
 		stats = stats.groupby('teamNumber').agg(agg_team_data)
 		recombine_variance(stats, std_dev)
@@ -154,14 +167,15 @@ class Live_Report(Report):
 
 		# Get match regression data
 		disagg_matches = pd.read_pickle('data/2024/disagg_matches.pkl')
-		disagg_matches = disagg_matches[disagg_matches.eventCode == self.eventCode]
+		disagg_matches = disagg_matches[disagg_matches.eventCode == self.code]
 		max_stats = disagg_matches.groupby('teamNumber').agg('max')
 		self.report.insert(0, 'Max High Samples', max_stats.reset_index().tSMPH)
 		self.report.insert(7, 'Max High Specimens', max_stats.reset_index().tSPCH)
 
 		# Get match data
 		matches = pd.read_pickle('data/2024/matches.pkl')
-		matches = matches[matches.eventCode == self.eventCode]
+		matches = matches[matches.eventCode == self.code]
+		matches = pd.merge(matches,disagg_matches[['teamNumber', 'eventCode', 'playoff', 'matchNumber', 'fit0', 'fit1', 'fit2', 'fit3']],on=['teamNumber', 'eventCode', 'playoff', 'matchNumber'],how='inner')
 		self.matches = beautify_matches(matches, team_dict)
 
 		# Get pretty regression data
@@ -169,3 +183,8 @@ class Live_Report(Report):
 		disagg_matches.insert(7,'Points',disagg_matches.pop('Pts'))
 		disagg_matches.drop(columns=disagg_matches.columns[-7:],inplace=True)
 		self.disagg_matches = disagg_matches
+
+	def to_csv(self):
+		super().to_csv()
+		self.matches.to_csv(f"reports/{self.code + '_m'}.csv", index=False)
+		self.disagg_matches.to_csv(f"reports/{self.code + '_r'}.csv", index=False)

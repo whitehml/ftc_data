@@ -74,7 +74,6 @@ class FtcRequests:
 		"""
 		params = {"eventCode" : event_code}
 		query = requests.get(self.SERVER + "v2.0/{}/teams".format(year), auth=HTTPBasicAuth(self.USER, self.API_KEY), headers=self.HEADERS, params=params)
-		breakpoint()
 		tf = pd.DataFrame(query.json()['teams'])
 		return dict(zip(tf.teamNumber, tf.nameShort))
 	

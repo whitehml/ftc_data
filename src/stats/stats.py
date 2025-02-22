@@ -1,5 +1,6 @@
 ﻿import pandas as pd
 import numpy as np
+import os
 from src.ftc_api.ftc_requests import FtcRequests
 
 location_map = { 'NONE' : 0, 'OBSERVATION_ZONE' : 3, 'ASCENT' : 3 }
@@ -160,7 +161,22 @@ def fillna_as_ints(df):
 		df[col] = pd.to_numeric(df[col]).fillna(0).astype(int)
 	return df
 
-def find_fit(fits: list):
+def find_fit(fits: list, row):
+	if os.path.exists('overrides/' + row.eventCode + '.csv'):
+		overrides = pd.read_csv('overrides/' + row.eventCode + '.csv')
+		overrides.set_index(['team_id', 'match_number', 'playoff'], inplace=True)
+		if ((row.teamNumber, row.matchNumber, row.playoff) in overrides.index):
+			fit = overrides.loc[row.teamNumber, row.matchNumber, row.playoff].fit
+			if fit == 'bucket':
+				return 0
+			elif fit == 'specimen':
+				return 1
+			elif fit == '2bucket':
+				return 2
+			elif fit == '2specimen':
+				return 3
+			else:
+				print(f"Unkown fit: {fit}")
 	return fits.index(min(fits))
 
 def split_stats(stat_list, bot1, bot2, bot1_dict, bot2_dict):
@@ -202,7 +218,7 @@ def get_disaggregate(bot1, bot2):
 	fit2 = abs(tBucket - tPotential1B - tPotential2B) + abs(aBucket - aPotential1B - aPotential2B) + tSpecimen * 1.5
 	fit3 = abs(tSpecimen - tPotential1S - tPotential2S) + abs(aSpecimen - aPotential1S - aPotential2S) + tBucket * 2.5
 	
-	fit = find_fit([fit0,fit1,fit2,fit3])
+	fit = find_fit([fit0,fit1,fit2,fit3], row)
 	bot1_dict = {'teamNumber': bot1.teamNumber, 'eventCode': bot1.eventCode, 'playoff': bot1.playoff, 'matchNumber': bot1.matchNumber, 'fit0': fit0,'fit1': fit1,'fit2': fit2,'fit3': fit3,}
 	bot2_dict = {'teamNumber': bot2.teamNumber, 'eventCode': bot2.eventCode, 'playoff': bot2.playoff, 'matchNumber': bot2.matchNumber, 'fit0': fit1,'fit1': fit0,'fit2': fit2,'fit3': fit3,}
 	if fit == 0:
@@ -269,6 +285,7 @@ def update_team_stats(disagg_matches):
 	max_pts = groups.max()[['Bucket', 'Specimen', 'Pts']]
 	max_pts = max_pts.add_prefix('Max ')
 	df = groups.agg(agg_disagg)
+	df[df.columns[4:-4]] = df[df.columns[4:-4]].divide(df.matchNumber,axis='index')
 	df.drop(columns=['teamNumber', 'eventCode', 'isBucket'],inplace=True)
 	df.rename(columns={'Bucket':'x̄ Bucket', 'Specimen': 'x̄ Specimen', 'Pts':'x̄ Pts'},inplace=True)
 	df = pd.merge(df, std_dev, left_index=True, right_index=True)
@@ -276,7 +293,7 @@ def update_team_stats(disagg_matches):
 	df.fillna(0, inplace=True)
 	df.to_pickle('data/2024/disagg_stats.pkl')
 
-def update_statistics(event_list, ftc_api: FtcRequests):
+def update_statistics(event_list: list, ftc_api: FtcRequests):
 	"""Updates FTC Into the Deep tracked statistics for events listed by ID. 2024 only."""
 	matches = update_matches(event_list, ftc_api)
 	matches.playoff = matches.playoff.astype('bool')
